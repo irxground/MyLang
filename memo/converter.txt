@@ -1,0 +1,21 @@
+
+-------------------------------
+# 言語名を仮にABCとしておく
+
+- ruby.lang.abc
+language Ruby {
+
+  object Console {
+    def WriteLine(str: String) {
+      `puts`(str)
+    }
+  }
+}
+
+
+- src.abc
+Console.WriteLine("Hello, world");
+
+- dst.rb
+puts("Hello, world")
+

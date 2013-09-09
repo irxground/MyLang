@@ -1,0 +1,38 @@
+
+// ---- ---- C# ---- ----
+namespace MyModule {
+  public class Program {
+    public static void Main() {
+      var p = new Person("Taro", 18);
+      Console.WriteLine("Hello, " + p.Name);
+    }
+  }
+  public class Person {
+    public string Name { get; set; }
+    public int Age { get; set; }
+  
+    public Person(string name, int age) {
+      this.Name = name;
+      this.Age = age;
+    }
+  }
+}
+
+// ---- ---- MyLang ---- ----
+
+# module MyModule
+
+## fun Main() ---
+let p = Person("Taro" 18)
+Console.WriteLine(p)
+
+## class Person
+
+### prop Name: String
+
+### prop Age: Int
+
+### fun this(name[String] age[Int]) ---
+this.Name = name
+this.Age = age
+
