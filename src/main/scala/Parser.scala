@@ -13,8 +13,10 @@ case class Block(stmt: List[Expr])
 
 sealed abstract class Expr
 case class StringLiteral(value: String) extends Expr
-case class Identifier(value: String)    extends Expr
+case class Identifier(value: String) extends Expr
 case class FuncCall(target: Expr, args: List[Expr]) extends Expr
+case class Member(target: Expr, member: String) extends Expr
+case class Cast(target: Expr, typeMod: TypeModifier) extends Expr
 
 case class TypeModifier(value: String) // TODO: improve
 
@@ -23,13 +25,13 @@ object MyParser extends RegexParsers with  PackratParsers {
 
   // ----- ----- ----- ----- Helper ----- ----- ----- -----
 
-  @inline def TODO = throw new NotImplementedError()
+  @inline private[this] def TODO = throw new NotImplementedError()
 
-  @inline def read(str: String): Parser[String] = str
+  @inline private[this] def read(str: String): Parser[String] = str
 
   val ident: Parser[String] = "[A-Za-z_][A-Za-z0-9_]*".r
 
-  @inline def aroundParen[T](p: Parser[T]) = aroundX("(", ")", p)
+  @inline private[this] def aroundParen[T](p: Parser[T]) = aroundX("(", ")", p)
 
   def aroundX[T](open: String, close: String, p: Parser[T]): Parser[List[T]] = {
     def loop: Parser[List[T]] =
@@ -42,14 +44,24 @@ object MyParser extends RegexParsers with  PackratParsers {
     open ~> loop
   }
 
+  @inline private[this] def toTail[T, U](p: Parser[T])(f: (Expr, T) => U): Parser[Expr => U] = {
+    p.map { t => e: Expr => f(e, t) }
+  }
+
   // ----- ----- ----- ----- Expression ----- ----- ----- -----
 
-  def expr: Parser[Expr] = funcCallExpr
+  def expr: Parser[Expr] = factor // TODO replace to binary operation
 
-  def funcCallExpr: Parser[Expr] = for {
-    target      <- singleExpr
-    argListList <- aroundParen(expr)*
-  } yield argListList.foldLeft(target) { new FuncCall(_, _) }
+
+  def tailFuncCall: Parser[Expr => FuncCall] = toTail(aroundParen(expr)) { new FuncCall(_, _) }
+  def tailMemerAccess: Parser[Expr => Member] = toTail("." ~> ident) { new Member(_, _) }
+  def tailCast: Parser[Expr => Cast] = toTail(typeModifier) { new Cast(_, _) }
+
+  def factor: Parser[Expr] = for {
+    target <- singleExpr
+    rest <- (tailFuncCall | tailMemerAccess | tailCast)*
+  } yield rest.foldLeft(target) { (x, f) => f(x) }
+
 
   def singleExpr: Parser[Expr] = strLiteral | identExpr
 
@@ -83,31 +95,5 @@ object MyParser extends RegexParsers with  PackratParsers {
 
   // ----- ----- ----- ----- Statements ----- ----- ----- -----
   def block: Parser[Block] = aroundX("{", "}", expr) map { new Block(_) }
-
-  /*
-
-  def classDec: Parser[ClassDec] = "class" ~> ident <~ (classDecBody*) map { new ClassDec(_) }
-
-  def classDecBody: Parser[Unit] = "{" ~ "}" map { _ => Unit }
-
-
-  def argList: Parser[List[ArgDec]] = repsep(argument, ",")
-
-  def argument: Parser[ArgDec] = for {
-    name <- ident
-    typeDec <- typeUse
-  } yield new ArgDec(name, typeDec);
-
-  def typeUse: Parser[String] =
-    ident.around("[", "]")
-
-  implicit class ParserEx[T](val parser: Parser[T]) {
-
-    // def <<(str: String) = parse(parser, str).get
-
-    def around(left: String, right: String): Parser[T] =
-      left ~> parser <~ right
-  }
-  */
 }
 

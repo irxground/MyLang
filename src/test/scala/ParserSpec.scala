@@ -35,12 +35,38 @@ class ParserSpec extends Specification {
       "foo" >> ps.identExpr must_== new Identifier("foo")
     }
   }
-  "FuncCall" should {
+  "Func Call" should {
     "be parse" in {
       "foo(bar)(hoge piyo)" >> ps.funcCallExpr must_==
         new FuncCall(
           new FuncCall(new Identifier("foo"), List(new Identifier("bar"))),
           List(new Identifier("hoge"), new Identifier("piyo")))
+    }
+  }
+  "MemberAccess" should {
+    "be parse" in {
+      "foo.bar.baz" >> ps.funcCallExpr must_==
+        new Member(new Member(new Identifier("foo"), "bar"), "baz")
+    }
+  }
+  "Cast" should {
+    "be parse" in {
+      "foo[String]" >> ps.funcCallExpr must_==
+        new Cast(new Identifier("foo"), new TypeModifier("String"))
+    }
+  }
+  "Method Call" should {
+    "be parse" in {
+      "foo.bar().baz()" >> ps.funcCallExpr must_==
+        new FuncCall(
+          new Member(
+            new FuncCall(
+              new Member(
+                new Identifier("foo"),
+                "bar"),
+              List()),
+            "baz"),
+          List())
     }
   }
   "TypeModifier" should {
@@ -68,6 +94,22 @@ class ParserSpec extends Specification {
             new FuncCall(new Identifier("print"), List(new StringLiteral("Hello, world!"))),
             new FuncCall(new Identifier("print"), List(new StringLiteral("Hello, world!")))
           ))))
+    }
+  }
+  "Sample program" should {
+    "be parse" in {
+      """
+      def main() {
+        Console.WriteLine("Hello")
+      }
+      """ >> ps.funcDec must_==
+        new FuncDec("main",
+          List(),
+          new TypeModifier(""),
+          Some(new Block(List(
+            new FuncCall(
+              new Member(new Identifier("Console"), "WriteLine"),
+              List(new StringLiteral("Hello")))))))
     }
   }
 
