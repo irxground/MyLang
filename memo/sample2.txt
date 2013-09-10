@@ -1,0 +1,34 @@
+class Printer {
+  // overload sample
+  def print {
+    do (num: Int) {
+      do(Int.toString(num))
+    }
+    do (str: String) {
+      // write string
+    }
+  }
+
+  def foo(val: String) { } // OK
+  def foo(val: Int) { } // NG, overload explicitly
+  overload def foo(val: Float) { } // OK
+
+}
+
+class User {
+  def name {
+    get: String { return this.name }
+    set(val: String) { this.name = value }
+    set(val: Array[Char]) { set(new String(val)); }
+  }
+}
+
+class UserEx < User {
+  overload def name {
+    get: StringBuffer { return new StringBuffer(get: String); }
+    override set(val: String) { super(val + "!!"); }
+  }
+}
+
+
+
