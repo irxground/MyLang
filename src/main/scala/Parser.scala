@@ -3,9 +3,12 @@ package irxground
 import scala._
 import util.parsing.combinator._
 
-case class ClassDec(name: String)
+case class LangDec(name: Option[String], body: List[Declaration])
 
-case class FuncDec(name: String, argList: List[ArgDec], returnType: TypeModifier, block: Option[Block])
+sealed abstract class Declaration
+case class ClassDec(name: String) extends Declaration
+
+case class FuncDec(name: String, argList: List[ArgDec], returnType: TypeModifier, block: Option[Block]) extends Declaration
 
 case class ArgDec(name: String, typeDec: TypeModifier)
 
@@ -53,9 +56,9 @@ object MyParser extends RegexParsers with  PackratParsers {
   def expr: Parser[Expr] = factor // TODO replace to binary operation
 
 
-  def tailFuncCall: Parser[Expr => FuncCall] = toTail(aroundParen(expr)) { new FuncCall(_, _) }
-  def tailMemerAccess: Parser[Expr => Member] = toTail("." ~> ident) { new Member(_, _) }
-  def tailCast: Parser[Expr => Cast] = toTail(typeModifier) { new Cast(_, _) }
+  def tailFuncCall: Parser[Expr => FuncCall] = toTail(aroundParen(expr)) { FuncCall(_, _) }
+  def tailMemerAccess: Parser[Expr => Member] = toTail("." ~> ident) { Member(_, _) }
+  def tailCast: Parser[Expr => Cast] = toTail(typeModifier) { Cast(_, _) }
 
   def factor: Parser[Expr] = for {
     target <- singleExpr
@@ -65,18 +68,27 @@ object MyParser extends RegexParsers with  PackratParsers {
 
   def singleExpr: Parser[Expr] = strLiteral | identExpr
 
-  def strLiteral: Parser[StringLiteral] =
+  def strLiteral: Parser[StringLiteral] = quoteStr map StringLiteral
+
+  def quoteStr: Parser[String] =
     ("\"" ~> """([^"\\]|\\[rnt"\\])+""".r <~ "\"") map { x =>
-      new StringLiteral(x
+      x
         .replaceAll("\\\\r", "\r")
         .replaceAll("\\\\n", "\n")
         .replaceAll("\\\\t", "\t")
-      )
     }
 
-  def identExpr: Parser[Identifier] = ident map { new Identifier(_) }
+  def identExpr: Parser[Identifier] = ident map { Identifier(_) }
 
   // ----- ----- ----- ----- Declaration ----- ----- ----- -----
+
+  def langDec: Parser[LangDec] = for {
+    _ <- read("language")
+    name <- opt(quoteStr | ident)
+    body <- declaration*
+  } yield LangDec(name, body)
+
+  def declaration: Parser[Declaration] = TODO
 
   def funcDec: Parser[FuncDec] = for {
     _       <- read("def")
@@ -84,16 +96,16 @@ object MyParser extends RegexParsers with  PackratParsers {
     args    <- aroundParen(argument)
     retType <- opt(typeModifier)
     block   <- opt(block)
-  } yield new FuncDec(name, args, retType.getOrElse(new TypeModifier("")), block)
+  } yield FuncDec(name, args, retType.getOrElse(TypeModifier("")), block)
 
   def argument: Parser[ArgDec] = for {
     name <- ident
     typeDec <- typeModifier
-  } yield new ArgDec(name, typeDec);
+  } yield ArgDec(name, typeDec);
 
-  def typeModifier: Parser[TypeModifier] = "[" ~> "[^\\]]+".r <~ "]" map { new TypeModifier(_) }
+  def typeModifier: Parser[TypeModifier] = "[" ~> "[^\\]]+".r <~ "]" map { TypeModifier(_) }
 
   // ----- ----- ----- ----- Statements ----- ----- ----- -----
-  def block: Parser[Block] = aroundX("{", "}", expr) map { new Block(_) }
+  def block: Parser[Block] = aroundX("{", "}", expr) map { Block(_) }
 }
 

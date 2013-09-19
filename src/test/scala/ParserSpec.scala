@@ -20,49 +20,44 @@ class ParserSpec extends Specification {
       "  foo  " >> ps.ident must_== "foo"
     }
   }
-  "Paren List" should {
-    "be parsed" in {
-      "(a b c)" >> ps.aroundParen(ps.ident) must_== List("a", "b", "c")
-    }
-  }
   "String Literal" should {
     "be parse" in {
-      """ "foo\nbar" """ >> ps.strLiteral must_== new StringLiteral("foo\nbar")
+      """ "foo\nbar" """ >> ps.strLiteral must_== StringLiteral("foo\nbar")
     }
   }
   "Identifier" should {
     "be parse" in {
-      "foo" >> ps.identExpr must_== new Identifier("foo")
+      "foo" >> ps.identExpr must_== Identifier("foo")
     }
   }
   "Func Call" should {
     "be parse" in {
-      "foo(bar)(hoge piyo)" >> ps.funcCallExpr must_==
-        new FuncCall(
-          new FuncCall(new Identifier("foo"), List(new Identifier("bar"))),
-          List(new Identifier("hoge"), new Identifier("piyo")))
+      "foo(bar)(hoge piyo)" >> ps.factor must_==
+        FuncCall(
+          FuncCall(Identifier("foo"), List(Identifier("bar"))),
+          List(Identifier("hoge"), Identifier("piyo")))
     }
   }
   "MemberAccess" should {
     "be parse" in {
-      "foo.bar.baz" >> ps.funcCallExpr must_==
-        new Member(new Member(new Identifier("foo"), "bar"), "baz")
+      "foo.bar.baz" >> ps.factor must_==
+        Member(Member(Identifier("foo"), "bar"), "baz")
     }
   }
   "Cast" should {
     "be parse" in {
-      "foo[String]" >> ps.funcCallExpr must_==
-        new Cast(new Identifier("foo"), new TypeModifier("String"))
+      "foo[String]" >> ps.factor must_==
+        Cast(Identifier("foo"), TypeModifier("String"))
     }
   }
   "Method Call" should {
     "be parse" in {
-      "foo.bar().baz()" >> ps.funcCallExpr must_==
-        new FuncCall(
-          new Member(
-            new FuncCall(
-              new Member(
-                new Identifier("foo"),
+      "foo.bar().baz()" >> ps.factor must_==
+        FuncCall(
+          Member(
+            FuncCall(
+              Member(
+                Identifier("foo"),
                 "bar"),
               List()),
             "baz"),
@@ -71,12 +66,12 @@ class ParserSpec extends Specification {
   }
   "TypeModifier" should {
     "be parse" in {
-      "[org.java.util]" >> ps.typeModifier must_== new TypeModifier("org.java.util")
+      "[org.java.util]" >> ps.typeModifier must_== TypeModifier("org.java.util")
     }
   }
   "FuncDec" should {
     "be parse" in {
-      "def foo()" >> ps.funcDec must_== new FuncDec("foo", List(), new TypeModifier(""), None)
+      "def foo()" >> ps.funcDec must_== FuncDec("foo", List(), TypeModifier(""), None)
     }
     "be parse" in {
       """
@@ -85,14 +80,14 @@ class ParserSpec extends Specification {
         print("Hello, world!")
       }
       """ >> ps.funcDec must_==
-        new FuncDec("print",
+        FuncDec("print",
           List(
-            new ArgDec("format", new TypeModifier("System.String")),
-            new ArgDec("object", new TypeModifier("Object"))),
-          new TypeModifier("Unit"),
-          Some(new Block(List(
-            new FuncCall(new Identifier("print"), List(new StringLiteral("Hello, world!"))),
-            new FuncCall(new Identifier("print"), List(new StringLiteral("Hello, world!")))
+            ArgDec("format", TypeModifier("System.String")),
+            ArgDec("object", TypeModifier("Object"))),
+          TypeModifier("Unit"),
+          Some(Block(List(
+            FuncCall(Identifier("print"), List(StringLiteral("Hello, world!"))),
+            FuncCall(Identifier("print"), List(StringLiteral("Hello, world!")))
           ))))
     }
   }
@@ -103,13 +98,13 @@ class ParserSpec extends Specification {
         Console.WriteLine("Hello")
       }
       """ >> ps.funcDec must_==
-        new FuncDec("main",
+        FuncDec("main",
           List(),
-          new TypeModifier(""),
-          Some(new Block(List(
-            new FuncCall(
-              new Member(new Identifier("Console"), "WriteLine"),
-              List(new StringLiteral("Hello")))))))
+          TypeModifier(""),
+          Some(Block(List(
+            FuncCall(
+              Member(Identifier("Console"), "WriteLine"),
+              List(StringLiteral("Hello")))))))
     }
   }
 
