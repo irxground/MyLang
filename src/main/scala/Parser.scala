@@ -6,9 +6,11 @@ import util.parsing.combinator._
 case class LangDec(name: Option[String], body: List[Declaration])
 
 sealed abstract class Declaration
-case class ClassDec(name: String) extends Declaration
+case class ClassDec(name: String, body: List[Declaration]) extends Declaration
+case class ObjDec(name: Option[String], body: List[Declaration]) extends Declaration
 
 case class FuncDec(name: String, argList: List[ArgDec], returnType: TypeModifier, block: Option[Block]) extends Declaration
+case class OpDec(operator: String, left: ArgDec, right: ArgDec, returnType: TypeModifier, block: Option[Block]) extends Declaration
 
 case class ArgDec(name: String, typeDec: TypeModifier)
 
@@ -20,6 +22,9 @@ case class Identifier(value: String) extends Expr
 case class FuncCall(target: Expr, args: List[Expr]) extends Expr
 case class Member(target: Expr, member: String) extends Expr
 case class Cast(target: Expr, typeMod: TypeModifier) extends Expr
+
+case class ExternalOperator(op: String) extends Expr
+case class ExternalIdentifier(value: String) extends Expr
 
 case class TypeModifier(value: String) // TODO: improve
 
@@ -34,16 +39,24 @@ object MyParser extends RegexParsers with  PackratParsers {
 
   val ident: Parser[String] = "[A-Za-z_][A-Za-z0-9_]*".r
 
-  @inline private[this] def aroundParen[T](p: Parser[T]) = aroundX("(", ")", p)
+  @inline private[this] def aroundParen[T](p: Parser[T]) = aroundX("(", ")", Some(","), p)
 
-  def aroundX[T](open: String, close: String, p: Parser[T]): Parser[List[T]] = {
-    def loop: Parser[List[T]] =
-      (read(close) map { _ => Nil: List[T] }) |
+  def aroundX[T](open: String, close: String, separator: Option[String], p: Parser[T]): Parser[List[T]] = {
+    val endParser: Parser[List[T]] = read(close) map { _ => Nil }
+    def withSep(p: Parser[List[T]]): Parser[List[T]] = separator match {
+      case Some(s) => for {
+        sep <- opt(s)
+        rest <- if (sep.nonEmpty) p else endParser
+      } yield rest
+      case None => p
+    }
+    def loop: Parser[List[T]] = {
+      endParser |
       (for {
         x  <- p
-        xs <- loop
+        xs <- withSep(loop)
       } yield x::xs)
-
+    }
     open ~> loop
   }
 
@@ -53,20 +66,31 @@ object MyParser extends RegexParsers with  PackratParsers {
 
   // ----- ----- ----- ----- Expression ----- ----- ----- -----
 
+  // ---- operator
   def expr: Parser[Expr] = factor // TODO replace to binary operation
 
 
-  def tailFuncCall: Parser[Expr => FuncCall] = toTail(aroundParen(expr)) { FuncCall(_, _) }
-  def tailMemerAccess: Parser[Expr => Member] = toTail("." ~> ident) { Member(_, _) }
-  def tailCast: Parser[Expr => Cast] = toTail(typeModifier) { Cast(_, _) }
+  // ---- chains
 
   def factor: Parser[Expr] = for {
     target <- singleExpr
     rest <- (tailFuncCall | tailMemerAccess | tailCast)*
   } yield rest.foldLeft(target) { (x, f) => f(x) }
 
+  def tailFuncCall: Parser[Expr => FuncCall] = toTail(aroundParen(expr)) { FuncCall(_, _) }
+  def tailMemerAccess: Parser[Expr => Member] = toTail("." ~> ident) { Member(_, _) }
+  def tailCast: Parser[Expr => Cast] = toTail(typeModifier) { Cast(_, _) }
 
-  def singleExpr: Parser[Expr] = strLiteral | identExpr
+  // ---- single Expr
+
+  def singleExpr: Parser[Expr] = external | strLiteral | identExpr
+
+  def external: Parser[Expr] = for {
+    _ <- read("external")
+    x <- opt("operator")
+    v <- quoteStr
+  // } yield x.fold(ExternalIdentifier(v): Expr) { _ => ExternalOperator(v): Expr }
+  } yield if (x.nonEmpty) ExternalOperator(v) else ExternalIdentifier(v)
 
   def strLiteral: Parser[StringLiteral] = quoteStr map StringLiteral
 
@@ -78,20 +102,49 @@ object MyParser extends RegexParsers with  PackratParsers {
         .replaceAll("\\\\t", "\t")
     }
 
-  def identExpr: Parser[Identifier] = ident map { Identifier(_) }
+  def identExpr: Parser[Identifier] = ident map Identifier
 
   // ----- ----- ----- ----- Declaration ----- ----- ----- -----
+
+  def decList: Parser[List[Declaration]] = aroundX("{", "}", None, declaration)
+  def optDecList: Parser[List[Declaration]] = opt(decList) map { _ getOrElse Nil }
 
   def langDec: Parser[LangDec] = for {
     _ <- read("language")
     name <- opt(quoteStr | ident)
-    body <- declaration*
+    body <- decList
   } yield LangDec(name, body)
 
-  def declaration: Parser[Declaration] = TODO
+  def declaration: Parser[Declaration] = classDec | objDec | funcDec
 
-  def funcDec: Parser[FuncDec] = for {
-    _       <- read("def")
+  def classDec: Parser[ClassDec] = for {
+    _    <- read("class")
+    name <- ident
+    body <- optDecList
+  } yield ClassDec(name, body)
+
+  def objDec: Parser[ObjDec] = for {
+    _    <- read("object")
+    name <- opt(ident)
+    body <- optDecList
+  } yield ObjDec(name, body)
+
+  def funcDec: Parser[Declaration] = "def" ~> (partialOpDec | partialFuncDec)
+
+  def partialOpDec: Parser[OpDec] = for {
+    _       <- read("operator")
+    name    <- quoteStr
+    _       <- read("(")
+    left    <- argument
+    _       <- read(",")
+    right   <- argument
+    _       <- opt(",")
+    _       <- read(")")
+    retType <- opt(typeModifier)
+    block   <- opt(block)
+  } yield OpDec(name, left, right, retType.getOrElse(TypeModifier("")), block)
+
+  def partialFuncDec: Parser[FuncDec] = for {
     name    <- ident
     args    <- aroundParen(argument)
     retType <- opt(typeModifier)
@@ -106,6 +159,6 @@ object MyParser extends RegexParsers with  PackratParsers {
   def typeModifier: Parser[TypeModifier] = "[" ~> "[^\\]]+".r <~ "]" map { TypeModifier(_) }
 
   // ----- ----- ----- ----- Statements ----- ----- ----- -----
-  def block: Parser[Block] = aroundX("{", "}", expr) map { Block(_) }
+  def block: Parser[Block] = aroundX("{", "}", Some(";"), expr) map { Block(_) }
 }
 

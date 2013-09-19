@@ -5,12 +5,26 @@ import org.specs2.mutable._
 
 class ParserSpec extends Specification {
 
-  implicit class ParserExL[T](val parser: MyParser.Parser[T]) {
-    def <<(str: String) = MyParser.parse(parser, str).get
-  }
-
   implicit class ParserExR(val str: String) {
     def >>[T](parser: MyParser.Parser[T]) = MyParser.parse(parser, str).get
+  }
+
+  implicit class ToIdentifier(val str: String) {
+    def xId = Identifier(str)
+    def xLit = StringLiteral(str)
+    def xT = TypeModifier(str)
+
+    def xF(args: Expr*) = xId.xF(args: _*)
+    def xM(str: String) = xId.xM(str)
+    def xC(str: String) = xId.xC(str)
+    def xMe(str: String, args: Expr*) = xId.xMe(str, args: _*)
+  }
+
+  implicit class ExprExtension(val ex: Expr) {
+    def xF(args: Expr*) = FuncCall(ex, List(args: _*))
+    def xM(str: String) = Member(ex, str)
+    def xC(str: String) = Cast(ex, TypeModifier(str))
+    def xMe(str: String, args: Expr*) = xM(str).xF(args: _*)
   }
 
   val ps = MyParser
@@ -22,110 +36,178 @@ class ParserSpec extends Specification {
   }
   "String Literal" should {
     "be parse" in {
-      """ "foo\nbar" """ >> ps.strLiteral must_== StringLiteral("foo\nbar")
+      """ "foo\nbar" """ >> ps.strLiteral must_== ("foo\nbar").xLit
     }
   }
   "Identifier" should {
     "be parse" in {
-      "foo" >> ps.identExpr must_== Identifier("foo")
+      "foo" >> ps.identExpr must_== "foo".xId
     }
   }
+  "External X" should {
+    "be parse" in {
+      """ external "foo" """ >> ps.external must_== ExternalIdentifier("foo")
+    }
+    "be parse" in {
+      """ external "foo"(bar) """ >> ps.factor must_== ExternalIdentifier("foo").xF("bar".xId)
+    }
+    "be parse" in {
+      """ external "echo"(external "PHP_EOL") """ >> ps.factor must_==
+        ExternalIdentifier("echo").xF(ExternalIdentifier("PHP_EOL"))
+    }
+    "be parse" in {
+      """ external operator "+"("Hello", external "PHP_EOL") """ >> ps.factor must_==
+        ExternalOperator("+").xF("Hello".xLit, ExternalIdentifier("PHP_EOL"))
+    }
+  }
+
   "Func Call" should {
     "be parse" in {
-      "foo(bar)(hoge piyo)" >> ps.factor must_==
-        FuncCall(
-          FuncCall(Identifier("foo"), List(Identifier("bar"))),
-          List(Identifier("hoge"), Identifier("piyo")))
+      "foo()" >> ps.factor must_== "foo".xF()
+      "foo(bar)" >> ps.factor must_== "foo".xF("bar".xId)
+      "foo(bar,)" >> ps.factor must_== "foo".xF("bar".xId)
+      "foo(bar,baz)" >> ps.factor must_== "foo".xF("bar".xId, "baz".xId)
+      "foo(bar)(baz)" >> ps.factor must_== "foo".xF("bar".xId).xF("baz".xId)
     }
   }
   "MemberAccess" should {
     "be parse" in {
-      "foo.bar.baz" >> ps.factor must_==
-        Member(Member(Identifier("foo"), "bar"), "baz")
+      "foo.bar.baz" >> ps.factor must_== "foo".xM("bar").xM("baz")
     }
   }
   "Cast" should {
     "be parse" in {
-      "foo[String]" >> ps.factor must_==
-        Cast(Identifier("foo"), TypeModifier("String"))
+      "foo[String]" >> ps.factor must_== "foo".xC("String")
     }
   }
   "Method Call" should {
     "be parse" in {
-      "foo.bar().baz()" >> ps.factor must_==
-        FuncCall(
-          Member(
-            FuncCall(
-              Member(
-                Identifier("foo"),
-                "bar"),
-              List()),
-            "baz"),
-          List())
+      "foo.bar().baz()" >> ps.factor must_== "foo".xMe("bar").xMe("baz")
     }
   }
   "TypeModifier" should {
     "be parse" in {
-      "[org.java.util]" >> ps.typeModifier must_== TypeModifier("org.java.util")
+      "[org.java.util]" >> ps.typeModifier must_== "org.java.util".xT
     }
   }
   "FuncDec" should {
     "be parse" in {
-      "def foo()" >> ps.funcDec must_== FuncDec("foo", List(), TypeModifier(""), None)
+      "def foo()" >> ps.funcDec must_== FuncDec("foo", Nil, "".xT, None)
     }
     "be parse" in {
       """
-      def print(format[System.String] object[Object]) [Unit] {
-        print("Hello, world!")
-        print("Hello, world!")
+      def print(format[System.String], object[Object]) [Unit] {
+        print("Hello, world!");
+        print("Hello, world!");
       }
       """ >> ps.funcDec must_==
         FuncDec("print",
           List(
-            ArgDec("format", TypeModifier("System.String")),
-            ArgDec("object", TypeModifier("Object"))),
-          TypeModifier("Unit"),
+            ArgDec("format", "System.String".xT),
+            ArgDec("object", "Object".xT)),
+          "Unit".xT,
           Some(Block(List(
-            FuncCall(Identifier("print"), List(StringLiteral("Hello, world!"))),
-            FuncCall(Identifier("print"), List(StringLiteral("Hello, world!")))
+            "print".xF("Hello, world!".xLit),
+            "print".xF("Hello, world!".xLit)
           ))))
     }
+    "be parse" in {
+      """def operator "+"(left[String], right[String]) """ >> ps.funcDec must_==
+        OpDec("+",
+          ArgDec("left", "String".xT),
+          ArgDec("right", "String".xT),
+          TypeModifier(""),
+          None)
+    }
   }
+  "Class/Object declaration" should {
+    "be parse" in {
+      "class People" >> ps.classDec must_== ClassDec("People", Nil)
+    }
+    "be parse" in {
+      "object People" >> ps.objDec must_== ObjDec(Some("People"), Nil)
+    }
+  }
+
+  "Declaration List" should {
+    "be parse" in {
+      """
+      language {
+        class Foo
+        class Bar {
+          object {
+            def Foo()
+          }
+        }
+      }
+      """ >> ps.langDec must_==
+        LangDec(None, List(
+          ClassDec("Foo", Nil),
+          ClassDec("Bar", List(
+            ObjDec(None, List(
+              FuncDec("Foo", Nil, "".xT, None)
+            ))
+          ))
+        ))
+    }
+  }
+
   "Sample program" should {
     "be parse" in {
       """
       def main() {
-        Console.WriteLine("Hello")
+        Console.WriteLine("Hello");
       }
       """ >> ps.funcDec must_==
         FuncDec("main",
-          List(),
-          TypeModifier(""),
+          Nil,
+          "".xT,
           Some(Block(List(
-            FuncCall(
-              Member(Identifier("Console"), "WriteLine"),
-              List(StringLiteral("Hello")))))))
-    }
-  }
-
-  // "FunctionDec" should {
-  //   "be parse" in {
-
-  //   }
-  // }
-/*
-  "ClassDec" should {
-    "be parse" in {
-      val dec = ps.classDec << "class Foo"
-      dec.name must_== "Foo"
+            "Console".xMe("WriteLine", "Hello".xLit)
+          ))))
     }
     "be parse" in {
-      val dec = ps.classDec << "class Foo {}"
-      dec.name must_== "Foo"
+      """
+      language {
+        class String
+
+        def operator "+" (left[String], right[String]) [String]
+
+        object Console {
+          def WriteLine(str[String])
+        }
+      }
+      """ >> ps.langDec must_!= Nil
+    }
+    "be parse" in {
+      """
+      language PHP {
+        def operator "+" (left[String], right[String]) [String] {
+          external operator "." (left, right)
+        }
+
+        object Console {
+          def WriteLine(str[String]) {
+            external "echo" (str, external "PHP_EOL")
+          }
+        }
+      }
+      """ >> ps.langDec must_!= Nil
+    }
+    "be parse" in {
+      """
+      language Ruby {
+        def operator "+" (left[String], right[String]) [String] {
+          external operator "+" (left, right)
+        }
+
+        object Console {
+          def WriteLine(str[String]) {
+            external "puts" (str)
+          }
+        }
+      }
+      """ >> ps.langDec must_!= Nil
     }
   }
-
-
-*/
 }
-
