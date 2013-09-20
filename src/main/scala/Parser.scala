@@ -3,8 +3,11 @@ package irxground
 import scala._
 import util.parsing.combinator._
 
-case class LangDec(name: Option[String], body: List[Declaration])
-case class Program(content: List[Declaration])
+trait DeclarationBlock {
+  def block: List[Declaration];
+}
+case class LangDec(name: Option[String], body: List[Declaration]) extends DeclarationBlock { def block = body }
+case class Program(content: List[Declaration]) extends DeclarationBlock { def block = content }
 
 sealed abstract class Declaration
 case class ClassDec(name: String, body: List[Declaration]) extends Declaration
