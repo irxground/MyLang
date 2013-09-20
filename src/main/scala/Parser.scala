@@ -4,6 +4,7 @@ import scala._
 import util.parsing.combinator._
 
 case class LangDec(name: Option[String], body: List[Declaration])
+case class Program(content: List[Declaration])
 
 sealed abstract class Declaration
 case class ClassDec(name: String, body: List[Declaration]) extends Declaration
@@ -17,7 +18,7 @@ case class ArgDec(name: String, typeDec: TypeModifier)
 case class Block(stmt: List[Expr])
 
 sealed abstract class Expr
-case class StringLiteral(value: String) extends Expr
+case class BinExpr(left: Expr, op: String, right: Expr) extends Expr
 case class Identifier(value: String) extends Expr
 case class FuncCall(target: Expr, args: List[Expr]) extends Expr
 case class Member(target: Expr, member: String) extends Expr
@@ -25,6 +26,9 @@ case class Cast(target: Expr, typeMod: TypeModifier) extends Expr
 
 case class ExternalOperator(op: String) extends Expr
 case class ExternalIdentifier(value: String) extends Expr
+
+case class StringLiteral(value: String) extends Expr
+case class NumberLiteral(value: String) extends Expr
 
 case class TypeModifier(value: String) // TODO: improve
 
@@ -38,6 +42,7 @@ object MyParser extends RegexParsers with  PackratParsers {
   @inline private[this] def read(str: String): Parser[String] = str
 
   val ident: Parser[String] = "[A-Za-z_][A-Za-z0-9_]*".r
+  val number: Parser[String] = "[1-9][_0-9]*".r
 
   @inline private[this] def aroundParen[T](p: Parser[T]) = aroundX("(", ")", Some(","), p)
 
@@ -66,9 +71,36 @@ object MyParser extends RegexParsers with  PackratParsers {
 
   // ----- ----- ----- ----- Expression ----- ----- ----- -----
 
+  @inline private[this] def orParser(ps: Seq[String]): Parser[String] = {
+    ps.map{ (x: String) => read(x) }
+      .reduce{ (x: Parser[String], y: Parser[String]) => (x | y): Parser[String] }
+  }
   // ---- operator
-  def expr: Parser[Expr] = factor // TODO replace to binary operation
+  val operators = Array(
+    Array("+", "-"),
+    Array("*", "/", "%")
+  )
+  val opTokens: Parser[String] = orParser(operators.flatMap{ x => x })
 
+  def operator(ops: Seq[String]): Parser[String] = for {
+    head <- orParser(ops)
+    rest <- opTokens*
+  } yield (head::rest).mkString
+
+  def expr: Parser[Expr] = binExpr(0) // TODO replace to binary operation
+
+  def binExpr(n: Int): Parser[Expr] = {
+    if (n >= operators.length) factor
+    else {
+      for {
+        left <- binExpr(n + 1)
+        rest <- (for {
+          op <- operator(operators(n))
+          right <- binExpr(n + 1)
+        } yield (ex: Expr) => BinExpr(ex, op, right))*
+      } yield rest.foldLeft(left){ (x, f) => f(x) }
+    }
+  }
 
   // ---- chains
 
@@ -83,7 +115,8 @@ object MyParser extends RegexParsers with  PackratParsers {
 
   // ---- single Expr
 
-  def singleExpr: Parser[Expr] = external | strLiteral | identExpr
+  def singleExpr: Parser[Expr] = paren | external | numLiteral | strLiteral | identExpr
+  def paren = "(" ~> expr <~ ")"
 
   def external: Parser[Expr] = for {
     _ <- read("external")
@@ -93,6 +126,7 @@ object MyParser extends RegexParsers with  PackratParsers {
   } yield if (x.nonEmpty) ExternalOperator(v) else ExternalIdentifier(v)
 
   def strLiteral: Parser[StringLiteral] = quoteStr map StringLiteral
+  def numLiteral: Parser[NumberLiteral] = number map NumberLiteral
 
   def quoteStr: Parser[String] =
     ("\"" ~> """([^"\\]|\\[rnt"\\])+""".r <~ "\"") map { x =>
@@ -108,6 +142,8 @@ object MyParser extends RegexParsers with  PackratParsers {
 
   def decList: Parser[List[Declaration]] = aroundX("{", "}", None, declaration)
   def optDecList: Parser[List[Declaration]] = opt(decList) map { _ getOrElse Nil }
+
+  def program: Parser[Program] = (declaration*) map Program
 
   def langDec: Parser[LangDec] = for {
     _ <- read("language")

@@ -9,7 +9,11 @@ class ParserSpec extends Specification {
     def >>[T](parser: MyParser.Parser[T]) = MyParser.parse(parser, str).get
   }
 
-  implicit class ToIdentifier(val str: String) {
+  implicit class IntExtension(val num: Int) {
+    def xLit = NumberLiteral(num.toString)
+  }
+
+  implicit class StringExtension(val str: String) {
     def xId = Identifier(str)
     def xLit = StringLiteral(str)
     def xT = TypeModifier(str)
@@ -39,6 +43,11 @@ class ParserSpec extends Specification {
       """ "foo\nbar" """ >> ps.strLiteral must_== ("foo\nbar").xLit
     }
   }
+  "Number Literal" should {
+    "be parse" in {
+      "1" >> ps.numLiteral must_== 1.xLit
+    }
+  }
   "Identifier" should {
     "be parse" in {
       "foo" >> ps.identExpr must_== "foo".xId
@@ -61,6 +70,21 @@ class ParserSpec extends Specification {
     }
   }
 
+  "BinaryExpr" should {
+    "be parse" in {
+      "1 + 2 * 3 + 4" >> ps.expr must_==
+        BinExpr(
+          BinExpr(1.xLit, "+", BinExpr(2.xLit, "*", 3.xLit)),
+          "+",
+          4.xLit)
+      " (1 + 2) * (3 + 4)" >> ps.expr must_==
+        BinExpr(
+          BinExpr(1.xLit, "+", 2.xLit),
+          "*",
+          BinExpr(3.xLit, "+", 4.xLit)
+        )
+    }
+  }
   "Func Call" should {
     "be parse" in {
       "foo()" >> ps.factor must_== "foo".xF()
@@ -158,13 +182,15 @@ class ParserSpec extends Specification {
       def main() {
         Console.WriteLine("Hello");
       }
-      """ >> ps.funcDec must_==
+      """ >> ps.program must_==
+        Program(List(
         FuncDec("main",
           Nil,
           "".xT,
           Some(Block(List(
             "Console".xMe("WriteLine", "Hello".xLit)
           ))))
+        ))
     }
     "be parse" in {
       """
